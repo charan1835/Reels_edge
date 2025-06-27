@@ -38,7 +38,8 @@ const GetEditsByCategory = async (slug) => {
   return result.edits;
 };
 
-export default {
+const api = {
   GetCategory,
-  GetEditsByCategory,
+  GetEditsByCategory
 };
+export default api;
