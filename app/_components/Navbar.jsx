@@ -2,14 +2,13 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { Menu, X } from "lucide-react";
-import { motion } from "framer-motion";
-import {
-  SignInButton,
-  SignUpButton,
-  UserButton,
-  useUser,
-} from "@clerk/nextjs";
+import { useUser } from "@clerk/nextjs";
+
+const SignInButton = dynamic(() => import("@clerk/nextjs").then(mod => mod.SignInButton), { ssr: false });
+const SignUpButton = dynamic(() => import("@clerk/nextjs").then(mod => mod.SignUpButton), { ssr: false });
+const UserButton = dynamic(() => import("@clerk/nextjs").then(mod => mod.UserButton), { ssr: false });
 
 const navLinks = [
   { name: "Home", href: "/" },
@@ -21,22 +20,15 @@ const navLinks = [
 
 export default function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
-  const { isSignedIn } = useUser(); // 🔥 This tells us if user is logged in or not
+  const { isSignedIn } = useUser();
 
   return (
-    <motion.nav
-      initial={{ y: -100 }}
-      animate={{ y: 0 }}
-      transition={{ duration: 0.6, ease: "easeOut" }}
-      className=" top-0 w-full z-50 bg-black/80 backdrop-blur-lg text-white shadow-md"
-    >
+    <nav className="fixed top-0 w-full z-50 bg-black/80 backdrop-blur-lg text-white shadow-md transition-all duration-300 ease-out">
       <div className="max-w-6xl mx-auto flex justify-between items-center px-4 py-3">
-        {/* Logo */}
         <Link href="/" className="text-2xl font-bold tracking-wider">
           Reel<span className="text-pink-500">Edge</span>
         </Link>
 
-        {/* Desktop nav links + auth */}
         <div className="hidden md:flex items-center gap-6">
           {navLinks.map((link) => (
             <Link
@@ -48,7 +40,6 @@ export default function Navbar() {
             </Link>
           ))}
 
-          {/* Clerk auth buttons */}
           {isSignedIn ? (
             <UserButton afterSignOutUrl="/" />
           ) : (
@@ -67,18 +58,17 @@ export default function Navbar() {
           )}
         </div>
 
-        {/* Mobile menu button */}
         <button
           onClick={() => setIsOpen(!isOpen)}
-          className="md:hidden focus:outline-none"
+          className="md:hidden focus:outline-none transition-all duration-200"
         >
           {isOpen ? <X size={24} /> : <Menu size={24} />}
         </button>
       </div>
 
-      {/* Mobile dropdown menu */}
+      {/* Mobile dropdown */}
       {isOpen && (
-        <div className="md:hidden px-4 pb-4 space-y-3">
+        <div className="md:hidden px-4 pb-4 space-y-3 transition-all duration-300 ease-in-out">
           {navLinks.map((link) => (
             <Link
               key={link.name}
@@ -92,7 +82,6 @@ export default function Navbar() {
 
           <hr className="border-pink-400 my-2" />
 
-          {/* Clerk auth for mobile */}
           {isSignedIn ? (
             <UserButton afterSignOutUrl="/" />
           ) : (
@@ -111,6 +100,6 @@ export default function Navbar() {
           )}
         </div>
       )}
-    </motion.nav>
+    </nav>
   );
 }
