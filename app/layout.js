@@ -7,7 +7,7 @@ const inter = Inter({ subsets: ["latin"] });
 
 export const metadata = {
   title: "ReelEdge",
-  description: "Cinematic Video Sharing Platform",
+  description: "Cinematic Video Editing Platform",
 };
 
 export default function RootLayout({ children }) {
