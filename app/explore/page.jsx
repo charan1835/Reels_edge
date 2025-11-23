@@ -2,11 +2,15 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import GlobalApi from '../_utils/GlobalApi';
-import { Play, Pause, Maximize, Minimize, Volume2, VolumeX } from 'lucide-react';
+import { Play, Pause, Maximize, Minimize, Volume2, VolumeX, Search, Filter } from 'lucide-react';
 
 function Explore() {
   const [edits, setEdits] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeCategory, setActiveCategory] = useState('All');
+
   const [playingVideo, setPlayingVideo] = useState(null);
   const [fullscreenVideo, setFullscreenVideo] = useState(null);
   const [mutedVideos, setMutedVideos] = useState(new Set());
@@ -14,99 +18,54 @@ function Explore() {
   const [videoLoading, setVideoLoading] = useState(new Set());
   const videoRefs = useRef({});
 
+  // Pagination State
+  const [visibleCount, setVisibleCount] = useState(9);
+
   useEffect(() => {
     const fetchAllEdits = async () => {
       try {
         console.log('🔍 Starting to fetch edits...');
-        
-        // METHOD 1: Try getting all edits directly (if this method exists)
-        if (GlobalApi.GetAllEdits) {
-          console.log('🎬 Trying GetAllEdits method...');
-          try {
-            const allEdits = await GlobalApi.GetAllEdits();
-            console.log('📹 Direct edits:', allEdits?.length || 0, allEdits);
-            if (allEdits && allEdits.length > 0) {
-              setEdits(allEdits);
-              return;
-            }
-          } catch (directError) {
-            console.log('❌ GetAllEdits failed:', directError);
-          }
-        }
 
-        // METHOD 2: Try the category approach
-        console.log('🔍 Trying category approach...');
+        // Fetch Categories first
         const allCategories = await GlobalApi.GetCategory();
-        console.log('📁 Categories received:', allCategories?.length || 0, allCategories);
-        
+        setCategories(allCategories || []);
+
         if (!allCategories || allCategories.length === 0) {
-          console.warn('⚠️ No categories found!');
-          
-          // METHOD 3: Try alternative category method
-          if (GlobalApi.GetCategories) {
-            console.log('🔄 Trying GetCategories (plural)...');
-            const altCategories = await GlobalApi.GetCategories();
-            console.log('📁 Alternative categories:', altCategories?.length || 0, altCategories);
-          }
-          
           setEdits([]);
           return;
         }
 
         let allEdits = [];
+        const seenIds = new Set();
 
         for (const cat of allCategories) {
-          const categoryId = cat.id || cat.slug || cat.name;
-          console.log(`🎬 Fetching edits for category: ${categoryId}`);
-          
           try {
-            // Try multiple approaches
-            let editsByCat = null;
-            
-            // Try with slug
-            if (cat.slug && GlobalApi.GetEditsByCategory) {
-              editsByCat = await GlobalApi.GetEditsByCategory(cat.slug);
-            }
-            
-            // Try with ID if slug failed
-            if (!editsByCat && cat.id && GlobalApi.GetEditsByCategoryId) {
-              editsByCat = await GlobalApi.GetEditsByCategoryId(cat.id);
-            }
-            
-            // Try with name if both failed
-            if (!editsByCat && cat.name && GlobalApi.GetEditsByCategoryName) {
-              editsByCat = await GlobalApi.GetEditsByCategoryName(cat.name);
-            }
-            
-            console.log(`📹 Edits for ${categoryId}:`, editsByCat?.length || 0, editsByCat);
-            
+            const editsByCat = await GlobalApi.GetEditsByCategory(cat.slug);
+
             if (editsByCat && Array.isArray(editsByCat)) {
-              allEdits = [...allEdits, ...editsByCat];
+              // Attach category slug and deduplicate
+              const newEdits = editsByCat.filter(edit => {
+                const id = edit.id || edit.slug; // Use slug as fallback ID
+                if (seenIds.has(id)) return false;
+                seenIds.add(id);
+                return true;
+              }).map(edit => ({ ...edit, categorySlug: cat.slug }));
+
+              allEdits = [...allEdits, ...newEdits];
             }
           } catch (catError) {
-            console.error(`❌ Error fetching edits for category ${categoryId}:`, catError);
+            console.error(`❌ Error fetching edits for category ${cat.slug}:`, catError);
           }
         }
 
-        console.log('🎥 Total raw edits collected:', allEdits.length, allEdits);
-
         // Filter out edits without valid video URLs
         const validEdits = allEdits.filter(edit => {
-          // Handle both array and object video structures (like in ReelList)
           const videoUrl = edit?.video?.[0]?.url || edit?.video?.url;
-          const hasVideo = videoUrl && 
-            typeof videoUrl === 'string' && 
-            videoUrl.trim() !== '';
-          
-          if (!hasVideo) {
-            console.log('❌ Invalid video for edit:', edit?.name || 'unnamed', edit);
-          }
-          return hasVideo;
+          return videoUrl && typeof videoUrl === 'string' && videoUrl.trim() !== '';
         });
 
-        console.log('✅ Valid edits with videos:', validEdits.length, validEdits);
         setEdits(validEdits);
-        
+
       } catch (error) {
         console.error('💥 Failed to load edits:', error);
       } finally {
@@ -122,18 +81,17 @@ function Explore() {
     const newErrors = new Set(videoErrors);
     newErrors.add(index);
     setVideoErrors(newErrors);
-    
+
     const newLoading = new Set(videoLoading);
     newLoading.delete(index);
     setVideoLoading(newLoading);
   };
 
   const handleVideoLoad = (index) => {
-    console.log(`Video ${index} loaded successfully`);
     const newLoading = new Set(videoLoading);
     newLoading.delete(index);
     setVideoLoading(newLoading);
-    
+
     const newErrors = new Set(videoErrors);
     newErrors.delete(index);
     setVideoErrors(newErrors);
@@ -161,12 +119,9 @@ function Explore() {
         await video.pause();
         setPlayingVideo(null);
       } else {
-        // Ensure video is ready to play
         if (video.readyState >= 2) {
           await video.play();
           setPlayingVideo(index);
-        } else {
-          console.warn('Video not ready to play yet');
         }
       }
     } catch (err) {
@@ -207,122 +162,201 @@ function Explore() {
     }
   };
 
+  // Filter Logic
+  const filteredEdits = edits.filter(edit => {
+    const matchesSearch = (edit.name?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
+      (edit.description?.toLowerCase() || '').includes(searchQuery.toLowerCase());
+    const matchesCategory = activeCategory === 'All' || edit.categorySlug === activeCategory;
+
+    return matchesSearch && matchesCategory;
+  });
+
+  // Pagination Logic
+  const handleLoadMore = () => {
+    setVisibleCount(prev => prev + 9);
+  };
+
+  const visibleEdits = filteredEdits.slice(0, visibleCount);
+
   return (
-    <div className="max-w-6xl mx-auto px-4 py-10">
-      <h1 className="text-3xl font-bold mb-6 text-center">Explore All Reels 🎥</h1>
-  
-      
-      {loading ? (
-        <div className="text-center py-20">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto mb-4"></div>
-          <p>Loading edits...</p>
+    <div className="max-w-7xl mx-auto px-4 py-10 min-h-screen">
+      <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
+        <h1 className="text-3xl font-bold text-slate-900 dark:text-white transition-colors">Explore Reels 🎥</h1>
+
+        {/* Search Bar */}
+        <div className="relative w-full md:w-96">
+          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+            <Search className="h-5 w-5 text-gray-400" />
+          </div>
+          <input
+            type="text"
+            className="block w-full pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-700 rounded-full leading-5 bg-white dark:bg-gray-800 text-slate-900 dark:text-gray-300 placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-150 ease-in-out shadow-sm"
+            placeholder="Search edits..."
+            value={searchQuery}
+            onChange={(e) => { setSearchQuery(e.target.value); setVisibleCount(9); }}
+          />
         </div>
-      ) : edits.length === 0 ? (
-        <div className="text-center py-20">
-          <p className="text-gray-600">No video edits found.</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
-          {edits.map((edit, index) => (
-            <div
-              key={`${edit.id || index}-${edit.name || 'unnamed'}`}
-              className="bg-white rounded-xl overflow-hidden shadow-md hover:shadow-xl transition border"
+      </div>
+
+      {/* Category Pills */}
+      {!loading && categories.length > 0 && (
+        <div className="flex overflow-x-auto pb-4 mb-6 gap-2 scrollbar-hide">
+          <button
+            onClick={() => { setActiveCategory('All'); setVisibleCount(9); }}
+            className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors shadow-sm ${activeCategory === 'All'
+                ? 'bg-blue-600 text-white'
+                : 'bg-white dark:bg-gray-800 text-slate-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700'
+              }`}
+          >
+            All
+          </button>
+          {categories.map((cat) => (
+            <button
+              key={cat.id}
+              onClick={() => { setActiveCategory(cat.slug); setVisibleCount(9); }}
+              className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors shadow-sm ${activeCategory === cat.slug
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-white dark:bg-gray-800 text-slate-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700'
+                }`}
             >
-              <div className="relative aspect-[9/16] bg-gray-100">
-                {videoErrors.has(index) ? (
-                  <div className="w-full h-full flex items-center justify-center bg-gray-200">
-                    <div className="text-center p-4">
-                      <p className="text-gray-500 text-sm mb-2">Video unavailable</p>
-                      <button 
-                        onClick={() => {
-                          const newErrors = new Set(videoErrors);
-                          newErrors.delete(index);
-                          setVideoErrors(newErrors);
-                          // Force video reload
-                          const video = videoRefs.current[index];
-                          if (video) {
-                            video.load();
-                          }
-                        }}
-                        className="text-blue-600 text-xs underline"
-                      >
-                        Retry
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <video
-                      ref={(el) => (videoRefs.current[index] = el)}
-                      src={edit?.video?.[0]?.url || edit?.video?.url}
-                      className="w-full h-full object-cover cursor-pointer"
-                      loop
-                      playsInline
-                      muted={mutedVideos.has(index)}
-                      preload="metadata"
-                      crossOrigin="anonymous"
-                      onLoadStart={() => handleVideoLoadStart(index)}
-                      onLoadedData={() => handleVideoLoad(index)}
-                      onError={(e) => handleVideoError(index, e)}
-                      onEnded={() => setPlayingVideo(null)}
-                      onPause={() => setPlayingVideo(null)}
-                      onClick={() => togglePlay(index)}
-                    />
+              {cat.name}
+            </button>
+          ))}
+        </div>
+      )}
 
-                    {videoLoading.has(index) && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/20">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
-                      </div>
-                    )}
-
-                    <div className="absolute bottom-2 left-2 flex gap-2">
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          togglePlay(index);
-                        }} 
-                        className="bg-white/80 hover:bg-white rounded-full p-2 transition-colors"
-                        disabled={videoErrors.has(index)}
-                      >
-                        {playingVideo === index ? <Pause size={16} /> : <Play size={16} />}
-                      </button>
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleMute(index);
-                        }} 
-                        className="bg-white/80 hover:bg-white rounded-full p-2 transition-colors"
-                        disabled={videoErrors.has(index)}
-                      >
-                        {mutedVideos.has(index) ? <VolumeX size={16} /> : <Volume2 size={16} />}
-                      </button>
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleFullscreen(index);
-                        }} 
-                        className="bg-white/80 hover:bg-white rounded-full p-2 transition-colors"
-                        disabled={videoErrors.has(index)}
-                      >
-                        {fullscreenVideo === index ? <Minimize size={16} /> : <Maximize size={16} />}
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-
-              <div className="p-4">
-                <h3 className="text-lg font-semibold line-clamp-1">
-                  {edit.name || 'Untitled Edit'}
-                </h3>
-                <p className="text-gray-600 text-sm mt-1 line-clamp-2">
-                  {edit.description || 'No description available'}
-                </p>
-                
+      {loading ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
+          {[1, 2, 3, 4, 5, 6].map((i) => (
+            <div key={i} className="bg-white dark:bg-gray-800 rounded-xl overflow-hidden shadow-md h-96 animate-pulse border border-gray-200 dark:border-gray-700">
+              <div className="h-3/4 bg-gray-200 dark:bg-gray-700"></div>
+              <div className="p-4 space-y-3">
+                <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4"></div>
+                <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/2"></div>
               </div>
             </div>
           ))}
         </div>
+      ) : filteredEdits.length === 0 ? (
+        <div className="text-center py-20">
+          <p className="text-gray-500 text-xl">No video edits found matching your criteria.</p>
+          <button
+            onClick={() => { setSearchQuery(''); setActiveCategory('All'); }}
+            className="mt-4 text-blue-500 hover:underline"
+          >
+            Clear filters
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
+            {visibleEdits.map((edit, index) => (
+              <div
+                key={`${edit.id || index}-${edit.name}`}
+                className="bg-white dark:bg-gray-900 rounded-xl overflow-hidden shadow-lg hover:shadow-2xl transition-all duration-300 border border-gray-200 dark:border-gray-800 group"
+              >
+                <div className="relative aspect-[9/16] bg-black group-hover:scale-[1.02] transition-transform duration-300">
+                  {videoErrors.has(index) ? (
+                    <div className="w-full h-full flex items-center justify-center bg-gray-100 dark:bg-gray-800">
+                      <div className="text-center p-4">
+                        <p className="text-gray-500 text-sm mb-2">Video unavailable</p>
+                        <button
+                          onClick={() => {
+                            const newErrors = new Set(videoErrors);
+                            newErrors.delete(index);
+                            setVideoErrors(newErrors);
+                            const video = videoRefs.current[index];
+                            if (video) video.load();
+                          }}
+                          className="text-blue-500 text-xs underline"
+                        >
+                          Retry
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <video
+                        ref={(el) => (videoRefs.current[index] = el)}
+                        src={edit?.video?.[0]?.url || edit?.video?.url}
+                        className="w-full h-full object-cover cursor-pointer"
+                        loop
+                        playsInline
+                        muted={mutedVideos.has(index)}
+                        preload="metadata"
+                        crossOrigin="anonymous"
+                        onLoadStart={() => handleVideoLoadStart(index)}
+                        onLoadedData={() => handleVideoLoad(index)}
+                        onError={(e) => handleVideoError(index, e)}
+                        onEnded={() => setPlayingVideo(null)}
+                        onPause={() => setPlayingVideo(null)}
+                        onClick={() => togglePlay(index)}
+                      />
+
+                      {videoLoading.has(index) && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+                          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-white"></div>
+                        </div>
+                      )}
+
+                      {/* Video Controls Overlay */}
+                      <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex justify-between items-center">
+                        <div className="flex gap-3">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); togglePlay(index); }}
+                            className="text-white hover:text-blue-400 transition-colors"
+                          >
+                            {playingVideo === index ? <Pause size={20} /> : <Play size={20} />}
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); toggleMute(index); }}
+                            className="text-white hover:text-blue-400 transition-colors"
+                          >
+                            {mutedVideos.has(index) ? <VolumeX size={20} /> : <Volume2 size={20} />}
+                          </button>
+                        </div>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); toggleFullscreen(index); }}
+                          className="text-white hover:text-blue-400 transition-colors"
+                        >
+                          {fullscreenVideo === index ? <Minimize size={20} /> : <Maximize size={20} />}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                <div className="p-4">
+                  <div className="flex justify-between items-start mb-2">
+                    <h3 className="text-lg font-bold text-slate-900 dark:text-white line-clamp-1">
+                      {edit.name || 'Untitled Edit'}
+                    </h3>
+                    {edit.categorySlug && (
+                      <span className="text-xs px-2 py-1 bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-300 rounded-full border border-blue-200 dark:border-blue-800/50">
+                        {categories.find(c => c.slug === edit.categorySlug)?.name || edit.categorySlug}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-gray-600 dark:text-gray-400 text-sm line-clamp-2">
+                    {edit.description || 'No description available'}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Load More Button */}
+          {visibleCount < filteredEdits.length && (
+            <div className="mt-12 text-center">
+              <button
+                onClick={handleLoadMore}
+                className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-full transition-all transform hover:scale-105 shadow-lg shadow-blue-900/50"
+              >
+                Load More Reels
+              </button>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
