@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from "react"
 import GlobalApi from "../_utils/GlobalApi"
 import { ChevronLeft, ChevronRight, Play, Pause, Smartphone } from "lucide-react"
 import Link from "next/link"
+import { motion, AnimatePresence } from "framer-motion"
 
 export default function CategoryList() {
   const [categories, setCategories] = useState([])
@@ -243,7 +244,12 @@ export default function CategoryList() {
   const visibleCategories = getVisibleCategories()
 
   return (
-    <div className="w-full px-2 sm:px-4 py-6 sm:py-12">
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5 }}
+      className="w-full px-2 sm:px-4 py-6 sm:py-12"
+    >
       <div className="max-w-7xl mx-auto">
         {/* Mobile-Optimized Header */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 sm:mb-8 px-2 gap-4 sm:gap-0">
@@ -343,14 +349,18 @@ export default function CategoryList() {
             }
 
             return (
-              <div
+              <motion.div
                 key={`${cat.originalIndex}-${position}`}
-                className={`absolute cursor-pointer select-none ${prefersReducedMotion ? '' : 'transition-all duration-300 ease-out'
-                  }`}
-                style={{
+                className={`absolute cursor-pointer select-none`}
+                initial={false}
+                animate={{
                   transform: `${baseTransform} scale(${scale})`,
                   opacity,
                   zIndex,
+                }}
+                transition={{
+                  duration: prefersReducedMotion ? 0 : 0.3,
+                  ease: "easeOut"
                 }}
                 onClick={() => !isTouching && goToIndex(cat.originalIndex)}
               >
@@ -405,7 +415,7 @@ export default function CategoryList() {
                     </div>
                   </div>
                 </Link>
-              </div>
+              </motion.div>
             )
           })}
 
@@ -570,6 +580,6 @@ export default function CategoryList() {
           }
         }
       `}</style>
-    </div>
+    </motion.div>
   )
 }
